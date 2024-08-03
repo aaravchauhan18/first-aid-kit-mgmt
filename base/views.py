@@ -150,57 +150,51 @@ class MedicineDelete(LoginRequiredMixin, DeleteView):
             return self.model.objects.all()
         return self.model.objects.filter(user=self.request.user)
 
-
-from django.core.paginator import Paginator
-from django.utils import timezone
-from datetime import timedelta
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic.list import ListView
-from .models import Medicine, User
-
-class UserMedicineList(LoginRequiredMixin, AdminRequiredMixin, ListView):
+class UserMedicineList(LoginRequiredMixin,AdminRequiredMixin, ListView):
     model = Medicine
     context_object_name = 'medicines'
     template_name = 'base/user_medicines.html'
-    paginate_by = 10  # Default number of items per page
 
     def get_queryset(self):
         user_id = self.kwargs['user_id']
-        queryset = Medicine.objects.filter(user__id=user_id)  # Fetch medicines for the specified user
-        
-        # Apply search filter if needed
-        search_input = self.request.GET.get('search-area', '')
-        if search_input:
-            queryset = queryset.filter(medicine_name__icontains=search_input)
-
-        return queryset
+        return Medicine.objects.filter(user__id=user_id)  # Fetch medicines for the specified user
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        
         user_id = self.kwargs['user_id']
-        one_month_from_now = timezone.now() + timedelta(days=30)
-        
-        # The queryset in context is already paginated by ListView
-        medicines = self.get_queryset()  # This queryset is filtered based on search input
-        
-        # Apply additional filtering for expiring medicines
-        expiring_medicines = medicines.filter(expiry_date__lt=one_month_from_now)
-        
         context['user'] = User.objects.get(id=user_id)  # Add the user to the context
-        context['search_input'] = self.request.GET.get('search-area', '')
+
+        search_input = self.request.GET.get('search-area') or ''
+        medicines = context['medicines']
+
+        if search_input:
+            medicines = medicines.filter(medicine_name__icontains=search_input)
+
+        context['medicines'] = medicines
+        context['search_input'] = search_input
+
+        # Check for expiring medicines
+        one_month_from_now = timezone.now() + timedelta(days=30)
+        expiring_medicines = context['medicines'].filter(expiry_date__lt=one_month_from_now)
+
         context['expiring_medicines'] = expiring_medicines
 
-        return context
+         # Handle pagination
+        per_page = int(self.request.GET.get('per_page', 10))  # Get the number of items per page from the GET parameters, default to 10
+        paginator = Paginator(context['medicines'], per_page)
+        page_number = self.request.GET.get('page')
+        page_obj = paginator.get_page(page_number)
 
+        context['page_obj'] = page_obj
+        context['per_page'] = per_page
+
+        return context
 
 class UserListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     model = User
     template_name = 'user_list.html'  # Replace with your template name
     context_object_name = 'users'
     
-    
-
 def contact_view(request):
     if request.method == 'POST':
         name = request.POST['name']
